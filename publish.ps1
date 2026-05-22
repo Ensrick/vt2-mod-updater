@@ -7,8 +7,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+$sln  = Join-Path $root 'vt2-mod-updater.sln'
 $proj = Join-Path $root 'src\VT2ModUpdater\VT2ModUpdater.csproj'
 
+Write-Host "==> dotnet test (gate the publish on a green test suite)"
+dotnet test $sln -c Release --logger "console;verbosity=normal"
+if ($LASTEXITCODE -ne 0) { throw "dotnet test failed (exit $LASTEXITCODE) — refusing to publish a broken build" }
+
+Write-Host ""
 Write-Host "==> dotnet publish -c Release"
 dotnet publish $proj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit $LASTEXITCODE)" }

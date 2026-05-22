@@ -8,13 +8,17 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>VT2ModUpdater</AssemblyName>
     <RootNamespace>VT2ModUpdater</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Company>Ensrick</Company>
     <Product>VT2 Mod Updater</Product>
     <AssemblyTitle>VT2 Mod Updater</AssemblyTitle>
-    <FileVersion>0.2.0.0</FileVersion>
-    <InformationalVersion>0.2.0</InformationalVersion>
+    <FileVersion>0.3.0.0</FileVersion>
+    <InformationalVersion>0.3.0</InformationalVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="VT2ModUpdater.Tests" />
+  </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <PublishSingleFile>true</PublishSingleFile>
