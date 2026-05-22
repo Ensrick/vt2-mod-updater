@@ -47,7 +47,7 @@ public sealed class MainViewModel : ObservableObject
             StatusMessage = "Locating Steam Workshop folder…";
             _workshopContentRoot = SteamPaths.FindWorkshopContentRoot();
             WorkshopPathDisplay = _workshopContentRoot is null
-                ? "Workshop folder not found — subscribe to at least one VT2 Workshop item first"
+                ? "Workshop folder not found — install/run VT2 at least once so Steam creates 552500"
                 : _workshopContentRoot;
 
             StatusMessage = "Fetching latest release from GitHub…";
@@ -61,7 +61,7 @@ public sealed class MainViewModel : ObservableObject
                 var row = new ModRow(entry);
                 if (_workshopContentRoot is not null)
                 {
-                    row.WorkshopFolderExists = Deployer.ModFolderExists(_workshopContentRoot, entry.WorkshopId);
+                    row.RealWorkshopSubscribed = Deployer.RealWorkshopFolderExists(_workshopContentRoot, entry.WorkshopId);
                     var installed = Deployer.ReadInstalledVersion(_workshopContentRoot, entry.WorkshopId);
                     if (!string.IsNullOrEmpty(installed)) row.InstalledVersion = installed;
                 }
@@ -69,9 +69,9 @@ public sealed class MainViewModel : ObservableObject
             }
 
             var outOfDate = Mods.Count(m => m.CanUpdate);
-            StatusMessage = outOfDate == 0
-                ? $"All {Mods.Count} mods up to date"
-                : $"{outOfDate} of {Mods.Count} mod(s) out of date";
+            var alsoSubscribed = Mods.Count(m => m.RealWorkshopSubscribed);
+            StatusMessage = (outOfDate == 0 ? $"All {Mods.Count} mods up to date" : $"{outOfDate} of {Mods.Count} mod(s) out of date")
+                            + (alsoSubscribed > 0 ? $"  ·  {alsoSubscribed} also subscribed on Workshop (unsubscribe to avoid double-load)" : "");
         }
         catch (Exception ex)
         {

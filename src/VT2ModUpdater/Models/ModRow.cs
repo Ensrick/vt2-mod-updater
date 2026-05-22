@@ -17,27 +17,29 @@ public sealed class ModRow : ObservableObject
         set { _installedVersion = value; OnPropertyChanged(); OnPropertyChanged(nameof(StateLabel)); OnPropertyChanged(nameof(CanUpdate)); }
     }
 
-    private bool _workshopFolderExists;
-    public bool WorkshopFolderExists
+    private bool _realWorkshopSubscribed;
+    public bool RealWorkshopSubscribed
     {
-        get => _workshopFolderExists;
-        set { _workshopFolderExists = value; OnPropertyChanged(); OnPropertyChanged(nameof(StateLabel)); OnPropertyChanged(nameof(CanUpdate)); }
+        get => _realWorkshopSubscribed;
+        set { _realWorkshopSubscribed = value; OnPropertyChanged(); OnPropertyChanged(nameof(StateLabel)); }
     }
 
     public string StateLabel
     {
         get
         {
-            if (!WorkshopFolderExists) return "Not subscribed — open Workshop and subscribe first";
-            if (InstalledVersion == "—") return "Installed (version unknown — needs first update)";
-            if (string.Equals(InstalledVersion, LatestVersion, StringComparison.OrdinalIgnoreCase)) return "Up to date";
-            return "Out of date";
+            string baseState;
+            if (InstalledVersion == "—") baseState = "Not installed";
+            else if (string.Equals(InstalledVersion, LatestVersion, StringComparison.OrdinalIgnoreCase)) baseState = "Up to date";
+            else baseState = "Out of date";
+
+            return RealWorkshopSubscribed
+                ? baseState + " — also subscribed on Workshop (unsubscribe to avoid double-load)"
+                : baseState;
         }
     }
 
-    public bool CanUpdate =>
-        WorkshopFolderExists &&
-        !string.Equals(InstalledVersion, LatestVersion, StringComparison.OrdinalIgnoreCase);
+    public bool CanUpdate => !string.Equals(InstalledVersion, LatestVersion, StringComparison.OrdinalIgnoreCase);
 
     public ModRow(ManifestEntry entry) { Entry = entry; }
 }
