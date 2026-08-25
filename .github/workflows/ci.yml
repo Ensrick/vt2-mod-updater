@@ -19,7 +19,7 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Restore
-        run: dotnet restore vt2-mod-updater.sln
+        run: dotnet restore vt2-mod-updater.sln -p:Configuration=Release
 
       - name: Build
         run: dotnet build vt2-mod-updater.sln -c Release --no-restore
