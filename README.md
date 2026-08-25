@@ -36,6 +36,19 @@ If you're **also subscribed** to a mod on Steam Workshop, the tool will flag it.
 (Steam's and the updater's) will load and VMF will probably complain about duplicate mod IDs.
 To avoid this, unsubscribe from the affected mods on Workshop. The updater handles the rest.
 
+## Bundle integrity check
+
+Every download is verified against a SHA-256 hash published in the release manifest. If a
+zip arrives corrupted (CDN hiccup, partial transfer) the tool refuses to extract it,
+re-downloads once, and skips the mod with a warning if both attempts fail. The previously
+installed version stays in place — re-run the updater later to retry. Older releases that
+don't publish hashes are still supported; verification is silently skipped in that case.
+
+The **Verify Installed Bundles** button also checks already-deployed synthetic folders.
+It reports clean, out-of-date, tampered, legacy-without-sidecar, and not-installed states.
+This detects accidental edits or bit-rot after installation; it never deletes or
+automatically replaces a modified bundle.
+
 ## What it doesn't do
 
 - It does **not** subscribe to or unsubscribe from Workshop items. That's manual.
