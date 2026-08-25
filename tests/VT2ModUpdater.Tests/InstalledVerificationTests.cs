@@ -177,6 +177,29 @@ public class InstalledVerificationTests
     }
 
     [Fact]
+    public void LegacySidecarWithoutManifestSha_WhenLatestHasHash_ReturnsOutOfDate()
+    {
+        using var tmp = new TempWorkshopRoot();
+        var bytes = MakeZip(("ct.bundle", "legacy-payload"));
+
+        // A deployment made from a legacy manifest can prove that its installed files
+        // are unchanged, but it cannot prove identity with a later hash-bearing
+        // manifest. It must remain repairable instead of being labelled verified OK.
+        Deployer.DeployZipBytes(
+            bytes,
+            tmp.Root,
+            "3712929235",
+            "0.7.80-alpha",
+            expectedSha256: null);
+
+        var latestManifestSha = Deployer.ComputeSha256Hex(bytes);
+        var result = Deployer.VerifyInstalled(tmp.Root, "3712929235", latestManifestSha);
+
+        Assert.Equal(VerifyState.OutOfDate, result.State);
+        Assert.Null(result.StashedManifestSha256);
+    }
+
+    [Fact]
     public void NoSidecar_LegacyInstall_ReturnsNoSidecar()
     {
         using var tmp = new TempWorkshopRoot();

@@ -304,8 +304,11 @@ public static class Deployer
                 sidecar.Value.InstalledFilesSha256);
 
         var latestNorm = NormalizeSha(latestManifestSha256);
+        // Once the current manifest supplies an authority hash, an older sidecar that
+        // has no manifest hash cannot prove it represents those bytes. Treat missing
+        // and differing stored authority alike so the row remains repairable rather
+        // than incorrectly presenting a legacy install as verified OK.
         if (latestNorm is not null
-            && sidecar.Value.ManifestSha256 is not null
             && !string.Equals(sidecar.Value.ManifestSha256, latestNorm, StringComparison.Ordinal))
             return new InstalledVerification(
                 VerifyState.OutOfDate,
