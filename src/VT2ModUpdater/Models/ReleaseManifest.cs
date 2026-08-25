@@ -31,6 +31,16 @@ public sealed class ManifestEntry
     [JsonPropertyName("asset_filename")]
     public string AssetFilename { get; set; } = "";
 
+    /// <summary>
+    /// Lowercase-hex SHA-256 of the bundle zip. Null or empty when consuming an older
+    /// manifest that pre-dates integrity verification — in that case the deployer skips
+    /// the integrity check with a debug log and proceeds. Producer side:
+    /// <c>vermintide-2-tweaker/tools/publish-release/publish-release.ps1</c> computes
+    /// this via <c>Get-FileHash -Algorithm SHA256</c> right after <c>Compress-Archive</c>.
+    /// </summary>
+    [JsonPropertyName("sha256")]
+    public string? Sha256 { get; set; }
+
     [JsonPropertyName("visibility")]
     public string Visibility { get; set; } = "";
 }

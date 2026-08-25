@@ -113,7 +113,14 @@
                     Command="{Binding OpenWorkshopFolderCommand}"
                     DockPanel.Dock="Left"
                     Padding="16,8"
-                    Background="#444"/>
+                    Background="#444"
+                    Margin="0,0,8,0"/>
+            <Button Content="Verify Installed Bundles"
+                    Command="{Binding VerifyInstalledCommand}"
+                    DockPanel.Dock="Left"
+                    Padding="16,8"
+                    Background="#444"
+                    ToolTip="Detect tampering of already-installed bundles. Compares the stash from install time against current on-disk contents and the latest manifest."/>
             <Button Content="Update All Out-of-Date"
                     Command="{Binding UpdateAllCommand}"
                     DockPanel.Dock="Right"

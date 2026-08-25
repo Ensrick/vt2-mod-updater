@@ -19,6 +19,7 @@ public class ManifestTests
                          "workshop_id": "3712929235",
                          "version": "0.7.80-alpha",
                          "asset_filename": "ct.zip",
+                         "sha256": "228ed038b0a243256121c52df7ed67dcb85479b3039c261099a4f3e191d38e08",
                          "visibility": "public"
                        },
                        {
@@ -27,6 +28,7 @@ public class ManifestTests
                          "workshop_id": "3712896117",
                          "version": "0.12.63-dev",
                          "asset_filename": "wt.zip",
+                         "sha256": "af1baeb8e65bd31b77a17d0686641f41b9eef742adeb9ad7fbd2520bf2bac231",
                          "visibility": "friends_only"
                        }
                      ]
@@ -41,7 +43,9 @@ public class ManifestTests
         Assert.Equal("3712929235", m.Mods[0].WorkshopId);
         Assert.Equal("0.7.80-alpha", m.Mods[0].Version);
         Assert.Equal("ct.zip", m.Mods[0].AssetFilename);
+        Assert.Equal("228ed038b0a243256121c52df7ed67dcb85479b3039c261099a4f3e191d38e08", m.Mods[0].Sha256);
         Assert.Equal("public", m.Mods[0].Visibility);
+        Assert.Equal("af1baeb8e65bd31b77a17d0686641f41b9eef742adeb9ad7fbd2520bf2bac231", m.Mods[1].Sha256);
         Assert.Equal("friends_only", m.Mods[1].Visibility);
     }
 
@@ -54,6 +58,35 @@ public class ManifestTests
         Assert.Single(m!.Mods);
         Assert.Equal("", m.Mods[0].ModId);
         Assert.Equal("", m.Mods[0].WorkshopId);
+        // Sha256 is nullable — older manifests without the field deserialize as null,
+        // and the verify path treats that as SkippedNoExpectedHash (debug log + proceed).
+        Assert.Null(m.Mods[0].Sha256);
+    }
+
+    [Fact]
+    public void ReleaseManifest_LegacyManifestWithoutSha256_StillDeserializes()
+    {
+        // Backwards-compat: an old release manifest predating Issue #30 has no sha256
+        // field anywhere. Newer consumer must still load it; Sha256 ends up null per row.
+        var json = """
+                   {
+                     "release_tag": "mods-2026-05-20",
+                     "mods": [
+                       {
+                         "mod_id": "ct",
+                         "friendly_name": "Chaos Wastes Tweaker",
+                         "workshop_id": "3712929235",
+                         "version": "0.7.80-alpha",
+                         "asset_filename": "ct.zip",
+                         "visibility": "public"
+                       }
+                     ]
+                   }
+                   """;
+        var m = JsonSerializer.Deserialize<ReleaseManifest>(json);
+        Assert.NotNull(m);
+        Assert.Single(m!.Mods);
+        Assert.Null(m.Mods[0].Sha256);
     }
 
     [Fact]
