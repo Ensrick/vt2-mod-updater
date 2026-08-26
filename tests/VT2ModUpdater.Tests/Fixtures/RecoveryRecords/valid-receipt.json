@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "release": {
+    "repository": "Ensrick/vermintide-2-tweaker",
+    "tag": "mods-fixture-2026-08-26"
+  },
+  "mod_folder": "modx",
+  "mod_id": "mx",
+  "workshop_id": "1234567890",
+  "version": "1.2.3-dev",
+  "asset": {
+    "filename": "mx.zip",
+    "length": 546,
+    "sha256": "7d1f642208d5851b8cfa748e4207093c24de70a2a6377b2473b1b1996d86b4e0"
+  },
+  "source": {
+    "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "clean",
+    "item_cfg_sha256": "9e11fb7137a91b37e77306c0e074b8078c4f4639edeb17fc0c5f5ed6257f83b6",
+    "item_cfg_git_blob": "3333333333333333333333333333333333333333"
+  },
+  "builder": {
+    "name": "VMBLauncher",
+    "version": "9.8.7+fixture"
+  },
+  "bundle_authority": "receipt",
+  "authority_proof": {
+    "byte_source": "materialized_restrictive_handles",
+    "inventory_git_blob": "1111111111111111111111111111111111111111",
+    "ignore_git_blob": "2222222222222222222222222222222222222222"
+  },
+  "root_bundle": "0123456789abcdef.mod_bundle",
+  "descriptor": {
+    "filename": "modx.mod",
+    "sha256": "6db3ae2ce8ed0d57f22fb35a5beaa8cb0ec35ec9d560b829e582dd4d63ea78f3",
+    "git_blob": "4444444444444444444444444444444444444444"
+  },
+  "output": {
+    "algorithm": "vt2-normalized-bundle-output-set-sha256-v1",
+    "fingerprint_sha256": "30bea7ad8acb4dd6b502e824565facc4a39abccfc514d594d805f3974f0f43b2",
+    "files": [
+      {
+        "filename": "0123456789abcdef.mod_bundle",
+        "length": 8,
+        "sha256": "57f4bc8fc7f9a9271afe6d3d0aed6afc675f06b6f6fb738b838d4f53da60f5c6",
+        "git_blob": ""
+      },
+      {
+        "filename": "fedcba9876543210.mod_bundle",
+        "length": 8,
+        "sha256": "92b80db12ef207bda13fb28ade13297e316259f357d339c2fc84393854402cb5",
+        "git_blob": ""
+      },
+      {
+        "filename": "modx.mod",
+        "length": 19,
+        "sha256": "6db3ae2ce8ed0d57f22fb35a5beaa8cb0ec35ec9d560b829e582dd4d63ea78f3",
+        "git_blob": ""
+      }
+    ]
+  },
+  "build_receipt": {
+    "path": "modx/.build-receipt.json",
+    "schema": 3,
+    "git_blob": "9999999999999999999999999999999999999999",
+    "sha256": "b1ead543f5253bfc920b140c8b61a865e392038543db7829e3b2dd0582418046",
+    "source_algorithm": "git-blob-build-byte-map-sha256-v2",
+    "source_fingerprint_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "root_bundle": "0123456789abcdef.mod_bundle",
+    "descriptor_name": "modx.mod",
+    "descriptor_sha256": "6db3ae2ce8ed0d57f22fb35a5beaa8cb0ec35ec9d560b829e582dd4d63ea78f3",
+    "output_algorithm": "vt2-normalized-bundle-output-set-sha256-v1",
+    "output_fingerprint_sha256": "30bea7ad8acb4dd6b502e824565facc4a39abccfc514d594d805f3974f0f43b2",
+    "builder_name": "VMBLauncher",
+    "builder_version": "9.8.7+fixture",
+    "normalization_policy": {
+      "algorithm": "exact-build-artifact-exclusions-sha256-v1",
+      "fingerprint_sha256": "2ca5530e1750551ccedd160ab6a267b56cf713ec6ddcb21ea8820481cecebd8c",
+      "excluded_outputs": [
+        {
+          "filename": "0a0b0c0d0e0f1011.mod_bundle",
+          "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        {
+          "filename": "f0e0d0c0b0a09080.mod_bundle",
+          "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+        }
+      ]
+    }
+  }
+}
