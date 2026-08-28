@@ -29,6 +29,11 @@ release assets — lives in the `vermintide-2-tweaker` repo at `tools/publish-re
   - `Deployer` — computes synthetic ID, verifies the release hash, creates
     `<workshop>/<synthetic_id>/` if missing, extracts zip there, and writes version plus
     installed-content integrity sidecars.
+  - `RecoveryHistoryResolver` — disabled, filesystem-free source-exact historical lookup.
+  - `SourceExactZipStager` — disabled recovery-only primitive which streams one resolved
+    numeric archive into a private same-volume sibling, verifies the exact flat output set,
+    and never installs or replaces the intended target. Do not wire it to `Deployer`; the
+    later journaled directory-transaction phase owns replacement.
 - `ViewModels/MainViewModel.cs` — orchestration. Async fetch → populate rows → enable buttons.
 
 ## Why synthetic IDs — the v0.1.0 → v0.2.0 lesson

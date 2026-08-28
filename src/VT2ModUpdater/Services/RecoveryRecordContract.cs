@@ -491,7 +491,7 @@ public static class RecoveryRecordContract
         }
     }
 
-    private static string ComputeOutputFingerprint(IReadOnlyList<RecoveryOutputFile> files)
+    internal static string ComputeOutputFingerprint(IReadOnlyList<RecoveryOutputFile> files)
     {
         var builder = new StringBuilder(OutputFingerprintAlgorithm.Length + files.Count * 180);
         builder.Append(OutputFingerprintAlgorithm).Append('\n');
@@ -513,7 +513,7 @@ public static class RecoveryRecordContract
         return Sha256Utf8(builder.ToString());
     }
 
-    private static string ComputeSemanticEquivalenceDigest(RecoveryRecord record)
+    internal static string ComputeSemanticEquivalenceDigest(RecoveryRecord record)
     {
         using var writer = new TypedSemanticDigestWriter(SemanticEquivalenceAlgorithm);
         writer.Integer("schema", record.Schema);
