@@ -49,6 +49,20 @@ It reports clean, out-of-date, tampered, legacy-without-sidecar, and not-install
 This detects accidental edits or bit-rot after installation; it never deletes or
 automatically replaces a modified bundle.
 
+## Recover an exact historical source (advanced)
+
+The advanced **Recover Exact Source** panel is separate from Update and Update All. Select
+one mod, enter an exact 40-character lowercase Git source commit, and click the recovery
+button. The updater scans a bounded release history for the exact mod/Workshop/commit tuple,
+downloads only the proven surviving archive, verifies its complete output set, and replaces
+only that mod's synthetic `10<workshop_id>` folder through a journaled same-volume transaction.
+
+This action never falls back to the latest release or a version-only match. A historical
+archive may honestly report that it no longer survives. Cancellation, remote failures,
+contract drift, invalid archives, and transaction failures remain terminal and preserve the
+reviewed recovery evidence. Success is shown only after the updater reads back the strict
+source-exact installed-state sidecar and version marker from the synthetic target.
+
 ## What it doesn't do
 
 - It does **not** subscribe to or unsubscribe from Workshop items. That's manual.

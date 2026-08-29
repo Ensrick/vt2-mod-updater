@@ -90,6 +90,7 @@ public sealed class SourceExactRecoveryCoordinatorTests
         Assert.Equal(SourceExactRecoveryStatus.Succeeded, outcome.Status);
         Assert.Equal(SourceExactRecoveryFailure.None, outcome.Failure);
         Assert.Equal(expectedTarget, outcome.TargetPath);
+        Assert.Equal("1.2.3-dev", outcome.ResolvedVersion);
         Assert.Equal(
             new[] { "recover", "resolve", "stage", "install" },
             composition.Calls);

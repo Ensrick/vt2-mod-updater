@@ -6,10 +6,12 @@ using VT2ModUpdater.Models;
 namespace VT2ModUpdater.Services;
 
 /// <summary>
-/// Disabled composition root for source-exact recovery. No production caller
-/// constructs this type yet; it cannot enter the ordinary latest-update path.
+/// Composition root for explicit source-exact recovery. Only the dedicated
+/// recovery runner constructs this type; it cannot enter the ordinary update
+/// path because that surface has no coordinator dependency.
 /// </summary>
-internal sealed class SourceExactRecoveryCoordinator : IDisposable
+internal sealed class SourceExactRecoveryCoordinator :
+    ISourceExactRecoveryCoordinator
 {
     private const int MaximumModIdLength = 128;
     private static readonly Regex ModIdPattern = new(
@@ -21,8 +23,8 @@ internal sealed class SourceExactRecoveryCoordinator : IDisposable
 
     /// <summary>
     /// Composes only the reviewed bounded-history resolver, streaming stager,
-    /// and journaled directory transaction. This constructor remains disabled
-    /// because no application or UI call site references the coordinator.
+    /// and journaled directory transaction. The explicit recovery runner owns
+    /// the resulting coordinator for one application lifetime.
     /// </summary>
     internal SourceExactRecoveryCoordinator()
         : this(new GitHubSourceExactRecoveryComposition()) { }
@@ -32,7 +34,7 @@ internal sealed class SourceExactRecoveryCoordinator : IDisposable
         ISourceExactRecoveryComposition composition) =>
         _composition = composition ?? throw new ArgumentNullException(nameof(composition));
 
-    internal async Task<SourceExactRecoveryOutcome> RecoverAsync(
+    public async Task<SourceExactRecoveryOutcome> RecoverAsync(
         SourceExactRecoveryRequest? request,
         CancellationToken cancellationToken = default)
     {
@@ -239,7 +241,8 @@ internal sealed class SourceExactRecoveryCoordinator : IDisposable
             SourceExactRecoveryFailure.None,
             "source-exact archive installed through the journaled directory transaction",
             target,
-            resolution.Evidence);
+            resolution.Evidence,
+            ResolvedVersion: resolution.Artifact.Proof.Record.Version);
     }
 
     public void Dispose()
@@ -292,9 +295,8 @@ internal sealed class SourceExactRecoveryCoordinator : IDisposable
                 SourceExactRecoveryFailure.InvalidWorkshopId,
                 "workshop_id must be a canonical positive UInt64 string");
         }
-        if (request.SourceCommit is null || request.SourceCommit.Length != 40 ||
-            request.SourceCommit.Any(character =>
-                character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
+        if (!SourceExactRecoveryRequestContract.IsCanonicalSourceCommit(
+                request.SourceCommit))
         {
             return Invalid(
                 SourceExactRecoveryFailure.InvalidSourceCommit,
@@ -498,6 +500,17 @@ internal sealed class SourceExactRecoveryCoordinator : IDisposable
 }
 
 /// <summary>
+/// Narrow application seam for the reviewed coordinator. It intentionally has
+/// no latest-release, legacy deployment, or direct filesystem replacement API.
+/// </summary>
+internal interface ISourceExactRecoveryCoordinator : IDisposable
+{
+    Task<SourceExactRecoveryOutcome> RecoverAsync(
+        SourceExactRecoveryRequest? request,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// The complete coordinator dependency surface. There is intentionally no
 /// latest-release client, legacy deployer, fallback selector, or Workshop
 /// mutation operation on this interface.
@@ -530,7 +543,7 @@ internal interface ISourceExactRecoveryStageLease : IDisposable
     string IntendedTargetPath { get; }
 }
 
-/// <summary>Exact production composition, presently unreachable by the app.</summary>
+/// <summary>Exact production composition reachable only by explicit recovery.</summary>
 internal sealed class GitHubSourceExactRecoveryComposition :
     ISourceExactRecoveryComposition
 {

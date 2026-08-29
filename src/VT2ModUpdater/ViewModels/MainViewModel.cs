@@ -2,15 +2,28 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using VT2ModUpdater.Models;
 using VT2ModUpdater.Services;
 
 namespace VT2ModUpdater.ViewModels;
 
-public sealed class MainViewModel : ObservableObject
+public sealed class MainViewModel : ObservableObject, IDisposable
 {
-    private readonly GitHubReleaseClient _client = new();
+    private const int OperationIdle = 0;
+    private const int OperationOrdinary = 1;
+    private const int OperationSourceExactRecovery = 2;
+
+    private readonly IReleaseClient _client;
+    private readonly ISourceExactRecoveryRunner _sourceExactRecovery;
+    private readonly Func<string?> _workshopPathResolver;
+    private readonly object _sourceExactRecoveryGate = new();
     private GitHubRelease? _latestRelease;
+    private CancellationTokenSource? _sourceExactRecoveryCancellation;
+    private int _operationState;
+    private long _manifestGeneration;
+    private int _sourceExactRecoveryDisposed;
+    private int _disposed;
 
     public ObservableCollection<ModRow> Mods { get; } = new();
 
@@ -25,21 +38,163 @@ public sealed class MainViewModel : ObservableObject
 
     private string? _workshopContentRoot;
 
+    private ModRow? _selectedMod;
+    public ModRow? SelectedMod
+    {
+        get => _selectedMod;
+        set
+        {
+            if (IsSourceExactOperationActive &&
+                !ReferenceEquals(_selectedMod, value))
+            {
+                return;
+            }
+            if (!Set(ref _selectedMod, value)) return;
+            if (!IsSourceExactOperationActive)
+                SourceExactCommitInput = value?.LatestSourceCommit ?? "";
+            OnPropertyChanged(nameof(SourceExactSelectionDisplay));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public string SourceExactSelectionDisplay => SelectedMod is null
+        ? "No mod selected"
+        : $"Selected: {SelectedMod.FriendlyName}";
+
+    private string _sourceExactCommitInput = "";
+    public string SourceExactCommitInput
+    {
+        get => _sourceExactCommitInput;
+        set
+        {
+            if (Set(ref _sourceExactCommitInput, value))
+                CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private string _sourceExactRecoveryMessage =
+        "Select a mod and enter an exact 40-character lowercase source commit.";
+    public string SourceExactRecoveryMessage
+    {
+        get => _sourceExactRecoveryMessage;
+        set => Set(ref _sourceExactRecoveryMessage, value);
+    }
+
+    private bool _isSourceExactRecoveryBusy;
+    public bool IsSourceExactRecoveryBusy
+    {
+        get => _isSourceExactRecoveryBusy;
+        private set
+        {
+            if (!Set(ref _isSourceExactRecoveryBusy, value)) return;
+            OnPropertyChanged(nameof(CanEditSourceExactRecovery));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool CanEditSourceExactRecovery => !IsSourceExactRecoveryBusy;
+
     public RelayCommand RefreshCommand { get; }
     public RelayCommand UpdateOneCommand { get; }
     public RelayCommand UpdateAllCommand { get; }
     public RelayCommand OpenWorkshopFolderCommand { get; }
     public RelayCommand VerifyInstalledCommand { get; }
+    public RelayCommand RecoverExactSourceCommand { get; }
+    public RelayCommand CancelExactSourceRecoveryCommand { get; }
 
     public MainViewModel()
-    {
-        RefreshCommand = new RelayCommand(async _ => await RefreshAsync());
-        UpdateOneCommand = new RelayCommand(async p => { if (p is ModRow row) await UpdateOneAsync(row); });
-        UpdateAllCommand = new RelayCommand(async _ => await UpdateAllAsync(), _ => Mods.Any(m => m.CanUpdate));
-        OpenWorkshopFolderCommand = new RelayCommand(OpenWorkshopFolder, _ => !string.IsNullOrEmpty(_workshopContentRoot));
-        VerifyInstalledCommand = new RelayCommand(_ => VerifyInstalledBundles(), _ => !string.IsNullOrEmpty(_workshopContentRoot) && Mods.Count > 0);
+        : this(new SourceExactRecoveryRunner(), null, startRefresh: true) { }
 
-        _ = RefreshAsync();
+    internal MainViewModel(
+        ISourceExactRecoveryRunner sourceExactRecovery,
+        string? workshopContentRoot = null,
+        bool startRefresh = false,
+        IReleaseClient? releaseClient = null,
+        Func<string?>? workshopPathResolver = null)
+    {
+        _sourceExactRecovery = sourceExactRecovery ??
+            throw new ArgumentNullException(nameof(sourceExactRecovery));
+        _client = releaseClient ?? new GitHubReleaseClient();
+        _workshopPathResolver = workshopPathResolver ??
+            SteamPaths.FindWorkshopContentRoot;
+        _workshopContentRoot = workshopContentRoot;
+        if (!string.IsNullOrWhiteSpace(workshopContentRoot))
+            WorkshopPathDisplay = workshopContentRoot;
+
+        RefreshCommand = new RelayCommand(
+            async _ => await RefreshWithAdmissionAsync(),
+            _ => CanStartExclusiveOperation());
+        UpdateOneCommand = new RelayCommand(
+            async p =>
+            {
+                if (p is ModRow row)
+                    await UpdateOneWithAdmissionAsync(row);
+            },
+            p => CanStartExclusiveOperation() &&
+                p is ModRow row && row.CanUpdate);
+        UpdateAllCommand = new RelayCommand(
+            async _ => await UpdateAllWithAdmissionAsync(),
+            _ => CanStartExclusiveOperation() && Mods.Any(m => m.CanUpdate));
+        OpenWorkshopFolderCommand = new RelayCommand(OpenWorkshopFolder, _ => !string.IsNullOrEmpty(_workshopContentRoot));
+        VerifyInstalledCommand = new RelayCommand(
+            _ => VerifyInstalledBundlesWithAdmission(),
+            _ => CanStartExclusiveOperation() &&
+                !string.IsNullOrEmpty(_workshopContentRoot) && Mods.Count > 0);
+        RecoverExactSourceCommand = new RelayCommand(
+            async _ => await RecoverExactSourceAsync(),
+            _ => CanRecoverExactSource());
+        CancelExactSourceRecoveryCommand = new RelayCommand(
+            _ => CancelExactSourceRecovery(),
+            _ => IsSourceExactRecoveryBusy);
+
+        if (startRefresh)
+            _ = RefreshWithAdmissionAsync();
+    }
+
+    private bool IsSourceExactOperationActive =>
+        Volatile.Read(ref _operationState) == OperationSourceExactRecovery;
+
+    private bool CanStartExclusiveOperation() =>
+        Volatile.Read(ref _disposed) == 0 &&
+        Volatile.Read(ref _operationState) == OperationIdle;
+
+    private bool TryBeginOperation(int operation) =>
+        Volatile.Read(ref _disposed) == 0 &&
+        Interlocked.CompareExchange(
+            ref _operationState,
+            operation,
+            OperationIdle) == OperationIdle;
+
+    private void EndOperation(int operation)
+    {
+        var previous = Interlocked.CompareExchange(
+            ref _operationState,
+            OperationIdle,
+            operation);
+        if (previous != operation)
+        {
+            throw new InvalidOperationException(
+                "updater operation admission state was released by the wrong owner");
+        }
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    internal async Task RefreshWithAdmissionAsync()
+    {
+        if (!TryBeginOperation(OperationOrdinary))
+        {
+            StatusMessage = "Another updater operation is already running.";
+            return;
+        }
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            await RefreshAsync();
+        }
+        finally
+        {
+            EndOperation(OperationOrdinary);
+        }
     }
 
     private async Task RefreshAsync()
@@ -47,7 +202,7 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             StatusMessage = "Locating Steam Workshop folder…";
-            _workshopContentRoot = SteamPaths.FindWorkshopContentRoot();
+            _workshopContentRoot = _workshopPathResolver();
             WorkshopPathDisplay = _workshopContentRoot is null
                 ? "Workshop folder not found — install/run VT2 at least once so Steam creates 552500"
                 : _workshopContentRoot;
@@ -57,7 +212,7 @@ public sealed class MainViewModel : ObservableObject
             var manifest = await _client.DownloadManifestAsync(_latestRelease).ConfigureAwait(true);
             ReleaseTagDisplay = $"release: {manifest.ReleaseTag}";
 
-            Mods.Clear();
+            var refreshedRows = new List<ModRow>(manifest.Mods.Count);
             foreach (var entry in manifest.Mods)
             {
                 var row = new ModRow(entry);
@@ -67,8 +222,15 @@ public sealed class MainViewModel : ObservableObject
                     var installed = Deployer.ReadInstalledVersion(_workshopContentRoot, entry.WorkshopId);
                     if (!string.IsNullOrEmpty(installed)) row.InstalledVersion = installed;
                 }
-                Mods.Add(row);
+                refreshedRows.Add(row);
             }
+
+            SelectedMod = null;
+            Mods.Clear();
+            foreach (var row in refreshedRows)
+                Mods.Add(row);
+            Interlocked.Increment(ref _manifestGeneration);
+            SelectedMod = Mods.FirstOrDefault();
 
             var outOfDate = Mods.Count(m => m.CanUpdate);
             var alsoSubscribed = Mods.Count(m => m.RealWorkshopSubscribed);
@@ -78,6 +240,25 @@ public sealed class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Error: {ex.Message}";
+        }
+    }
+
+    internal async Task UpdateOneWithAdmissionAsync(ModRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (!TryBeginOperation(OperationOrdinary))
+        {
+            StatusMessage = "Another updater operation is already running.";
+            return;
+        }
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            await UpdateOneAsync(row);
+        }
+        finally
+        {
+            EndOperation(OperationOrdinary);
         }
     }
 
@@ -168,6 +349,24 @@ public sealed class MainViewModel : ObservableObject
         return null;
     }
 
+    private async Task UpdateAllWithAdmissionAsync()
+    {
+        if (!TryBeginOperation(OperationOrdinary))
+        {
+            StatusMessage = "Another updater operation is already running.";
+            return;
+        }
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            await UpdateAllAsync();
+        }
+        finally
+        {
+            EndOperation(OperationOrdinary);
+        }
+    }
+
     private async Task UpdateAllAsync()
     {
         var targets = Mods.Where(m => m.CanUpdate).ToList();
@@ -182,6 +381,132 @@ public sealed class MainViewModel : ObservableObject
             : $"Updated {targets.Count - failed}/{targets.Count} — {failed} still out of date";
     }
 
+    internal async Task RecoverExactSourceAsync()
+    {
+        if (!HasValidRecoveryInput())
+        {
+            SourceExactRecoveryMessage =
+                "Select a mod, locate the Workshop folder, and enter an exact " +
+                "40-character lowercase source commit.";
+            return;
+        }
+        if (!TryBeginOperation(OperationSourceExactRecovery))
+        {
+            var activeOperation = Volatile.Read(ref _operationState);
+            SourceExactRecoveryMessage =
+                activeOperation == OperationSourceExactRecovery
+                    ? "A source-exact recovery is already running."
+                    : "Another updater operation is already running.";
+            return;
+        }
+        CommandManager.InvalidateRequerySuggested();
+
+        var row = SelectedMod!;
+        var commit = SourceExactCommitInput;
+        var manifestGeneration = Volatile.Read(ref _manifestGeneration);
+        if (!Mods.Contains(row) ||
+            !SourceExactRecoveryRequestContract.IsCanonicalSourceCommit(commit))
+        {
+            SourceExactRecoveryMessage =
+                "The recovery selection or exact commit changed before admission; refresh and select it again.";
+            EndOperation(OperationSourceExactRecovery);
+            return;
+        }
+        var request = new SourceExactRecoveryRequest(
+            RecoveryRecordContract.Repository,
+            row.Entry.ModId,
+            row.WorkshopId,
+            commit,
+            _workshopContentRoot!);
+        var cancellation = new CancellationTokenSource();
+        lock (_sourceExactRecoveryGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                cancellation.Dispose();
+                EndOperation(OperationSourceExactRecovery);
+                return;
+            }
+            _sourceExactRecoveryCancellation = cancellation;
+        }
+
+        IsSourceExactRecoveryBusy = true;
+        SourceExactRecoveryMessage =
+            $"Recovering {row.FriendlyName} at exact source {commit}…";
+        StatusMessage = SourceExactRecoveryMessage;
+        try
+        {
+            var result = await _sourceExactRecovery.RecoverAndVerifyAsync(
+                request,
+                cancellation.Token).ConfigureAwait(true);
+            SourceExactRecoveryMessage = result.Message;
+            StatusMessage = $"{row.FriendlyName}: {result.Message}";
+
+            if (result.Status == SourceExactRecoveryRunStatus.Succeeded &&
+                result.ReadBack is not null)
+            {
+                if (manifestGeneration == Volatile.Read(ref _manifestGeneration) &&
+                    Mods.Contains(row) &&
+                    ReferenceEquals(SelectedMod, row))
+                {
+                    row.InstalledVersion = result.ReadBack.InstalledVersion;
+                    row.InstalledSourceCommit = result.ReadBack.State.SourceCommit;
+                    row.VerifyState = null;
+                }
+                else
+                {
+                    SourceExactRecoveryMessage =
+                        "Exact source was installed and read back, but the manifest selection changed; refresh before relying on the displayed row state.";
+                    StatusMessage = SourceExactRecoveryMessage;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            SourceExactRecoveryMessage =
+                $"Source-exact recovery failed before a terminal result: {ex.Message}";
+            StatusMessage = $"{row.FriendlyName}: {SourceExactRecoveryMessage}";
+        }
+        finally
+        {
+            lock (_sourceExactRecoveryGate)
+            {
+                if (ReferenceEquals(
+                        _sourceExactRecoveryCancellation,
+                        cancellation))
+                {
+                    _sourceExactRecoveryCancellation = null;
+                }
+            }
+            cancellation.Dispose();
+            IsSourceExactRecoveryBusy = false;
+            EndOperation(OperationSourceExactRecovery);
+            DisposeSourceExactRecoveryAfterCompletionIfRequested();
+        }
+    }
+
+    internal void CancelExactSourceRecovery()
+    {
+        lock (_sourceExactRecoveryGate)
+        {
+            if (_sourceExactRecoveryCancellation is null) return;
+            SourceExactRecoveryMessage = "Cancelling source-exact recovery…";
+            _sourceExactRecoveryCancellation.Cancel();
+        }
+    }
+
+    private bool CanRecoverExactSource() =>
+        Volatile.Read(ref _operationState) == OperationIdle &&
+        HasValidRecoveryInput();
+
+    private bool HasValidRecoveryInput() =>
+        Volatile.Read(ref _disposed) == 0 &&
+        SelectedMod is not null &&
+        Mods.Contains(SelectedMod) &&
+        !string.IsNullOrWhiteSpace(_workshopContentRoot) &&
+        SourceExactRecoveryRequestContract.IsCanonicalSourceCommit(
+            SourceExactCommitInput);
+
     /// <summary>
     /// Issue #32: post-install verification. For each row, classify the installed bundle
     /// as OK / OUT_OF_DATE / TAMPERED / NO_SIDECAR / NOT_INSTALLED by comparing:
@@ -193,6 +518,24 @@ public sealed class MainViewModel : ObservableObject
     /// surfaced and the user decides whether to click Update (the user may have
     /// intentionally modified the bundle).
     /// </summary>
+    private void VerifyInstalledBundlesWithAdmission()
+    {
+        if (!TryBeginOperation(OperationOrdinary))
+        {
+            StatusMessage = "Another updater operation is already running.";
+            return;
+        }
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            VerifyInstalledBundles();
+        }
+        finally
+        {
+            EndOperation(OperationOrdinary);
+        }
+    }
+
     private void VerifyInstalledBundles()
     {
         if (_workshopContentRoot is null)
@@ -250,5 +593,29 @@ public sealed class MainViewModel : ObservableObject
     {
         if (string.IsNullOrEmpty(_workshopContentRoot) || !Directory.Exists(_workshopContentRoot)) return;
         Process.Start(new ProcessStartInfo { FileName = _workshopContentRoot, UseShellExecute = true });
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        lock (_sourceExactRecoveryGate)
+            _sourceExactRecoveryCancellation?.Cancel();
+
+        if (Volatile.Read(ref _operationState) != OperationSourceExactRecovery)
+            DisposeSourceExactRecovery();
+        _client.Dispose();
+    }
+
+    private void DisposeSourceExactRecoveryAfterCompletionIfRequested()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            DisposeSourceExactRecovery();
+    }
+
+    private void DisposeSourceExactRecovery()
+    {
+        if (Interlocked.Exchange(ref _sourceExactRecoveryDisposed, 1) == 0)
+            _sourceExactRecovery.Dispose();
     }
 }

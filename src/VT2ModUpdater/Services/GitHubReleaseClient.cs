@@ -5,7 +5,19 @@ using VT2ModUpdater.Models;
 
 namespace VT2ModUpdater.Services;
 
-public sealed class GitHubReleaseClient : IDisposable
+internal interface IReleaseClient : IDisposable
+{
+    Task<GitHubRelease> GetLatestReleaseAsync(CancellationToken ct = default);
+    Task<ReleaseManifest> DownloadManifestAsync(
+        GitHubRelease release,
+        CancellationToken ct = default);
+    Task<byte[]> DownloadAssetAsync(
+        GitHubRelease release,
+        string assetFilename,
+        CancellationToken ct = default);
+}
+
+public sealed class GitHubReleaseClient : IReleaseClient
 {
     private const string Owner = "Ensrick";
     private const string Repo = "vermintide-2-tweaker";

@@ -14,6 +14,14 @@ public sealed record SourceExactRecoveryRequest(
     string SourceCommit,
     string WorkshopContentRoot);
 
+internal static class SourceExactRecoveryRequestContract
+{
+    internal static bool IsCanonicalSourceCommit(string? value) =>
+        value is { Length: 40 } &&
+        value.All(character =>
+            character is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
+}
+
 /// <summary>
 /// Terminal coordinator classification. Every invocation returns exactly one
 /// state; caller cancellation is data rather than an escaping exception.
@@ -65,9 +73,11 @@ public enum SourceExactRecoveryFailure
 }
 
 /// <summary>
-/// Frozen result from the disabled coordinator. <see cref="TargetPath"/> is
+/// Frozen result from the explicit coordinator. <see cref="TargetPath"/> is
 /// populated only after the request passes pure validation and is always the
 /// synthetic Workshop folder derived by <c>Deployer.GetSyntheticFolder</c>.
+/// Successful outcomes also carry the resolved historical version so UI
+/// read-back can bind the installed marker to the exact recovery proof.
 /// </summary>
 internal sealed record SourceExactRecoveryOutcome(
     SourceExactRecoveryStatus Status,
@@ -77,4 +87,5 @@ internal sealed record SourceExactRecoveryOutcome(
     RecoveryResolutionEvidence? ResolutionEvidence = null,
     RecoveryResolutionFailure? ResolutionFailure = null,
     SourceExactStageFailure? StageFailure = null,
-    SourceExactTransactionFailure? TransactionFailure = null);
+    SourceExactTransactionFailure? TransactionFailure = null,
+    string? ResolvedVersion = null);
