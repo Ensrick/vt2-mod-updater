@@ -29,23 +29,30 @@ release assets — lives in the `vermintide-2-tweaker` repo at `tools/publish-re
   - `Deployer` — computes synthetic ID, verifies the release hash, creates
     `<workshop>/<synthetic_id>/` if missing, extracts zip there, and writes version plus
     installed-content integrity sidecars.
-  - `RecoveryHistoryResolver` — disabled, filesystem-free source-exact historical lookup.
-  - `SourceExactZipStager` — disabled recovery-only primitive which streams one resolved
+  - `RecoveryHistoryResolver` — filesystem-free source-exact historical lookup used only
+    by the explicit advanced recovery action.
+  - `SourceExactZipStager` — recovery-only primitive which streams one resolved
     numeric archive into a private same-volume sibling, verifies the exact flat output set,
     and never installs or replaces the intended target. Do not wire it to `Deployer`; the
     later journaled directory-transaction phase owns replacement.
-  - `SourceExactDirectoryTransaction` — disabled recovery-only NTFS primitive which consumes
+  - `SourceExactDirectoryTransaction` — recovery-only NTFS primitive which consumes
     that verified sibling stage, adds a strict `source_exact` installed-state sidecar, and
     replaces one sibling target through handle-bound renames plus append-only crash witnesses.
     Recovery compares physical identities and exact file sets before committing, rolling back,
-    or deleting anything. It has no UI, updater, `Deployer`, or latest-release call site.
-- `ViewModels/MainViewModel.cs` — orchestration. Async fetch → populate rows → enable buttons.
+    or deleting anything. It has no direct UI, `Deployer`, or ordinary-update call site.
+  - `SourceExactRecoveryCoordinator` + `SourceExactRecoveryRunner` — the only production
+    composition for the explicit advanced recovery action. The runner requires a successful
+    installed-state and version-marker read-back before the UI reports success.
+- `ViewModels/MainViewModel.cs` — orchestration. Async fetch → populate rows → enable ordinary
+  update buttons, plus a separately named source-exact action and cancellation path.
 
-## Disabled source-exact Phase 4 contract
+## Source-exact recovery contract
 
-`SourceExactDirectoryTransaction` is an isolated recovery primitive, not a deployed
-updater path. It must remain absent from production call sites until a later issue
-explicitly authorizes integration. Its current guarantee is deliberately narrow:
+`SourceExactDirectoryTransaction` remains an isolated primitive consumed only through
+`SourceExactRecoveryCoordinator` by the separately labeled **Recover Exact Source** action.
+The ordinary Update and Update All paths continue to use the latest release and do not call
+the coordinator, resolver, stager, or transaction. The recovery guarantee is deliberately
+narrow:
 
 - Windows + local fixed NTFS volume only (not UNC, mapped SMB, removable, or RAM-disk
   storage), with ordinary process termination as the crash boundary. The
@@ -92,6 +99,25 @@ trusted against hostile same-user writers. This phase prevents accidental races 
 path deletion; it does not establish a security boundary against code with the updater
 user's filesystem authority.
 
+### Explicit recovery UI boundary
+
+- The user must select one manifest row, provide an exact 40-character lowercase source
+  commit, and click **Recover Exact Source**. Loading, selecting, refreshing, Update, and
+  Update All never start historical recovery.
+- The latest manifest's `source_commit` is only an input convenience. Authority still comes
+  from the bounded historical recovery record selected by exact
+  `(mod_id, workshop_id, source_commit)`.
+- Recovery writes only the synthetic `10<workshop_id>` target. `ArtifactGone`, bounds,
+  remote, contract, staging, transaction, and cancellation outcomes are terminal; there is
+  no fallback to a version, latest archive, real Workshop folder, or legacy deployer.
+- The UI reports success only after it re-reads the strict
+  `.vt2updater_source_exact.json` sidecar and exact version marker from the synthetic target
+  and confirms the requested tuple. A read-back failure is reported separately even though
+  the journaled transaction itself completed.
+- Only one recovery may run at a time. Its cancel action flows one cancellation token through
+  resolver, staging, and transaction, and window shutdown requests cancellation before the
+  owned recovery composition is disposed.
+
 ## Why synthetic IDs — the v0.1.0 → v0.2.0 lesson
 
 v0.1.0 wrote into the real Workshop folder `<workshop>/<real_id>/`. That's a Steam-managed
@@ -127,6 +153,7 @@ The `manifest.json` asset on the `vermintide-2-tweaker` release looks like:
       "version": "0.7.80-alpha",
       "asset_filename": "ct.zip",
       "sha256": "228ed038b0a243256121c52df7ed67dcb85479b3039c261099a4f3e191d38e08",
+      "source_commit": "0123456789abcdef0123456789abcdef01234567",
       "visibility": "public"
     }
   ]

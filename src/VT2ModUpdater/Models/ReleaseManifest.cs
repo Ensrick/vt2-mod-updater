@@ -41,6 +41,15 @@ public sealed class ManifestEntry
     [JsonPropertyName("sha256")]
     public string? Sha256 { get; set; }
 
+    /// <summary>
+    /// Exact producer commit for this manifest row. Older manifests may omit it;
+    /// the explicit recovery surface then requires the user to supply a commit.
+    /// This value is only a convenient input default, never recovery authority:
+    /// the recovery resolver still proves the complete historical record.
+    /// </summary>
+    [JsonPropertyName("source_commit")]
+    public string? SourceCommit { get; set; }
+
     [JsonPropertyName("visibility")]
     public string Visibility { get; set; } = "";
 }

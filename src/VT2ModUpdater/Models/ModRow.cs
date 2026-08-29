@@ -10,6 +10,7 @@ public sealed class ModRow : ObservableObject
     public string LatestVersion => Entry.Version;
     public string WorkshopId => Entry.WorkshopId;
     public string AssetFilename => Entry.AssetFilename;
+    public string? LatestSourceCommit => Entry.SourceCommit;
     /// <summary>Manifest's lowercase-hex SHA-256, or null on older releases.</summary>
     public string? ExpectedSha256 => Entry.Sha256;
 
@@ -17,7 +18,18 @@ public sealed class ModRow : ObservableObject
     public string InstalledVersion
     {
         get => _installedVersion;
-        set { _installedVersion = value; OnPropertyChanged(); OnPropertyChanged(nameof(StateLabel)); OnPropertyChanged(nameof(CanUpdate)); }
+        set
+        {
+            _installedVersion = value;
+            if (_installedSourceCommit is not null)
+            {
+                _installedSourceCommit = null;
+                OnPropertyChanged(nameof(InstalledSourceCommit));
+            }
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(StateLabel));
+            OnPropertyChanged(nameof(CanUpdate));
+        }
     }
 
     private bool _realWorkshopSubscribed;
@@ -25,6 +37,22 @@ public sealed class ModRow : ObservableObject
     {
         get => _realWorkshopSubscribed;
         set { _realWorkshopSubscribed = value; OnPropertyChanged(); OnPropertyChanged(nameof(StateLabel)); }
+    }
+
+    private string? _installedSourceCommit;
+    /// <summary>
+    /// Exact commit confirmed by the post-transaction installed-state read-back
+    /// during this updater session. It is deliberately separate from the latest
+    /// manifest commit and from the legacy integrity sidecar.
+    /// </summary>
+    public string? InstalledSourceCommit
+    {
+        get => _installedSourceCommit;
+        set
+        {
+            if (Set(ref _installedSourceCommit, value))
+                OnPropertyChanged(nameof(StateLabel));
+        }
     }
 
     /// <summary>
@@ -52,7 +80,14 @@ public sealed class ModRow : ObservableObject
         get
         {
             string baseState;
-            if (_verifyState is { } vs)
+            if (!string.IsNullOrEmpty(InstalledSourceCommit))
+            {
+                var abbreviated = InstalledSourceCommit.Length > 12
+                    ? InstalledSourceCommit[..12]
+                    : InstalledSourceCommit;
+                baseState = $"SOURCE_EXACT — {abbreviated}";
+            }
+            else if (_verifyState is { } vs)
             {
                 baseState = vs switch
                 {

@@ -8,4 +8,11 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
     }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (DataContext is IDisposable disposable)
+            disposable.Dispose();
+        base.OnClosed(e);
+    }
 }

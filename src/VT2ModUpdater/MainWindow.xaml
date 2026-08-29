@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:VT2ModUpdater.ViewModels"
         Title="VT2 Mod Updater"
-        Height="640" Width="900"
+        Height="730" Width="1050"
         Background="#1B1B1F"
         WindowStartupLocation="CenterScreen">
     <Window.DataContext>
@@ -34,6 +34,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -66,7 +67,9 @@
                   RowBackground="#202028"
                   AlternatingRowBackground="#26262C"
                   BorderThickness="0"
-                  IsReadOnly="True">
+                  IsReadOnly="True"
+                  IsEnabled="{Binding CanEditSourceExactRecovery}"
+                  SelectedItem="{Binding SelectedMod, Mode=TwoWay}">
             <DataGrid.Resources>
                 <Style TargetType="DataGridColumnHeader">
                     <Setter Property="Background" Value="#2E2E36"/>
@@ -101,8 +104,58 @@
             </DataGrid.Columns>
         </DataGrid>
 
+        <!-- explicit, opt-in source-exact recovery -->
+        <Border Grid.Row="3"
+                Background="#26262C"
+                Padding="12,10"
+                CornerRadius="4"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock Text="Source-exact recovery (advanced)"
+                           FontWeight="SemiBold"
+                           FontSize="14"/>
+                <TextBlock Margin="0,3,0,8"
+                           Opacity="0.72"
+                           TextWrapping="Wrap"
+                           Text="Explicitly restore one selected mod from an exact historical source commit. This replaces only its synthetic 10&lt;Workshop ID&gt; folder; it does not change how Update or Update All select the latest release."/>
+                <Grid IsEnabled="{Binding CanEditSourceExactRecovery}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="210"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding SourceExactSelectionDisplay}"
+                               Margin="0,0,12,0"/>
+                    <TextBox Grid.Column="1"
+                             Text="{Binding SourceExactCommitInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Exactly 40 lowercase hexadecimal characters"
+                             Background="#17171B"
+                             Foreground="#EEE"
+                             BorderBrush="#555560"
+                             Padding="8,5"
+                             Margin="0,0,10,0"/>
+                    <Button Grid.Column="2"
+                            Content="Recover Exact Source"
+                            Command="{Binding RecoverExactSourceCommand}"
+                            Padding="14,6"/>
+                </Grid>
+                <DockPanel Margin="0,8,0,0">
+                    <Button Content="Cancel Recovery"
+                            Command="{Binding CancelExactSourceRecoveryCommand}"
+                            DockPanel.Dock="Right"
+                            Background="#704040"
+                            Margin="12,0,0,0"
+                            Padding="12,5"/>
+                    <TextBlock Text="{Binding SourceExactRecoveryMessage}"
+                               TextWrapping="Wrap"
+                               Opacity="0.82"/>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
         <!-- bottom buttons -->
-        <DockPanel Grid.Row="3" Margin="0,12,0,0">
+        <DockPanel Grid.Row="4" Margin="0,12,0,0">
             <Button Content="Refresh"
                     Command="{Binding RefreshCommand}"
                     DockPanel.Dock="Left"

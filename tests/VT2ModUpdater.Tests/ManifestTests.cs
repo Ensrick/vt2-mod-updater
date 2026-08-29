@@ -20,6 +20,7 @@ public class ManifestTests
                          "version": "0.7.80-alpha",
                          "asset_filename": "ct.zip",
                          "sha256": "228ed038b0a243256121c52df7ed67dcb85479b3039c261099a4f3e191d38e08",
+                         "source_commit": "0123456789abcdef0123456789abcdef01234567",
                          "visibility": "public"
                        },
                        {
@@ -44,6 +45,7 @@ public class ManifestTests
         Assert.Equal("0.7.80-alpha", m.Mods[0].Version);
         Assert.Equal("ct.zip", m.Mods[0].AssetFilename);
         Assert.Equal("228ed038b0a243256121c52df7ed67dcb85479b3039c261099a4f3e191d38e08", m.Mods[0].Sha256);
+        Assert.Equal("0123456789abcdef0123456789abcdef01234567", m.Mods[0].SourceCommit);
         Assert.Equal("public", m.Mods[0].Visibility);
         Assert.Equal("af1baeb8e65bd31b77a17d0686641f41b9eef742adeb9ad7fbd2520bf2bac231", m.Mods[1].Sha256);
         Assert.Equal("friends_only", m.Mods[1].Visibility);
@@ -61,6 +63,7 @@ public class ManifestTests
         // Sha256 is nullable — older manifests without the field deserialize as null,
         // and the verify path treats that as SkippedNoExpectedHash (debug log + proceed).
         Assert.Null(m.Mods[0].Sha256);
+        Assert.Null(m.Mods[0].SourceCommit);
     }
 
     [Fact]
@@ -87,6 +90,7 @@ public class ManifestTests
         Assert.NotNull(m);
         Assert.Single(m!.Mods);
         Assert.Null(m.Mods[0].Sha256);
+        Assert.Null(m.Mods[0].SourceCommit);
     }
 
     [Fact]
