@@ -79,7 +79,7 @@ internal sealed class SourceExactZipStager
             stageDirectory = CreatePrivateSiblingStage(target);
             var archivePath = Path.Combine(stageDirectory, ArchiveScratchFilename);
 
-            await DownloadExactArchiveAsync(
+            var actualArchiveSha256 = await DownloadExactArchiveAsync(
                 artifact,
                 archivePath,
                 deadline.Token).ConfigureAwait(false);
@@ -110,7 +110,8 @@ internal sealed class SourceExactZipStager
             var result = new SourceExactZipStage(
                 stageDirectory,
                 target,
-                artifact.AssetSha256,
+                artifact,
+                actualArchiveSha256,
                 outputs);
             stageDirectory = null;
             return result;
@@ -163,7 +164,7 @@ internal sealed class SourceExactZipStager
         }
     }
 
-    private async Task DownloadExactArchiveAsync(
+    private async Task<string> DownloadExactArchiveAsync(
         SourceExactRecoveryArtifact artifact,
         string archivePath,
         CancellationToken cancellationToken)
@@ -266,6 +267,7 @@ internal sealed class SourceExactZipStager
 
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             output.Flush(flushToDisk: true);
+            return actualSha256;
         }
         finally
         {
@@ -742,6 +744,7 @@ internal sealed class SourceExactZipStager
         if (string.IsNullOrEmpty(root) ||
             string.IsNullOrEmpty(parent) ||
             string.Equals(target, root, StringComparison.OrdinalIgnoreCase) ||
+            !SourceExactTransactionFileSystem.SafeTargetLeaf(Path.GetFileName(target)) ||
             !Directory.Exists(parent) ||
             File.Exists(target))
         {
@@ -882,30 +885,133 @@ internal sealed class SourceExactZipStager
 
 internal sealed class SourceExactZipStage : IDisposable
 {
-    private int _disposed;
+    private readonly object _ownershipGate = new();
+    private readonly SourceExactStageArtifactBinding _artifactBinding;
+    private SourceExactTransactionFileSystem.DirectoryLease? _directoryLease;
+    private int _ownershipState;
 
     internal SourceExactZipStage(
         string stageDirectory,
         string intendedTargetPath,
+        SourceExactRecoveryArtifact artifact,
         string archiveSha256,
         IReadOnlyList<SourceExactStagedOutput> outputs)
     {
-        StageDirectory = stageDirectory;
-        IntendedTargetPath = intendedTargetPath;
+        ArgumentNullException.ThrowIfNull(artifact);
+        ArgumentNullException.ThrowIfNull(outputs);
+        StageDirectory = SourceExactTransactionFileSystem.Normalize(stageDirectory);
+        IntendedTargetPath = SourceExactTransactionFileSystem.Normalize(intendedTargetPath);
         ArchiveSha256 = archiveSha256;
-        Outputs = outputs;
+        Outputs = Array.AsReadOnly(outputs
+            .OrderBy(row => row.Filename, StringComparer.Ordinal)
+            .Select(row => new SourceExactStagedOutput(
+                row.Filename,
+                row.Length,
+                row.Sha256))
+            .ToArray());
+        Version = artifact.Proof.Record.Version;
+        InstalledState = SourceExactInstalledState.Create(artifact, Outputs);
+        _artifactBinding = SourceExactStageArtifactBinding.From(artifact);
+        var directory = SourceExactTransactionFileSystem.OpenDirectory(StageDirectory);
+        try
+        {
+            VerifiedSnapshot = SourceExactTransactionFileSystem.Snapshot(directory);
+            RequireInitialSnapshot();
+            _directoryLease = directory;
+        }
+        catch
+        {
+            directory.Dispose();
+            throw;
+        }
     }
 
     internal string StageDirectory { get; }
     internal string IntendedTargetPath { get; }
     internal string ArchiveSha256 { get; }
     internal IReadOnlyList<SourceExactStagedOutput> Outputs { get; }
+    internal string Version { get; }
+    internal SourceExactInstalledStateDocument InstalledState { get; }
+    internal ExactDirectorySnapshot VerifiedSnapshot { get; }
+
+    internal SourceExactStageTransfer TransferOwnership(
+        SourceExactRecoveryArtifact artifact)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        lock (_ownershipGate)
+        {
+            if (_ownershipState != 0)
+                throw new InvalidOperationException(
+                    "source-exact stage was already transferred or disposed");
+            if (_artifactBinding != SourceExactStageArtifactBinding.From(artifact))
+                throw new InvalidDataException(
+                    "source-exact stage artifact binding differs from the transfer request");
+            var lease = _directoryLease ??
+                throw new InvalidOperationException("source-exact stage lease is missing");
+            lease.RequireCurrentPath();
+            using (var guard = SourceExactTransactionFileSystem.GuardDirectory(StageDirectory))
+                guard.RequireExact(VerifiedSnapshot);
+            var transfer = new SourceExactStageTransfer(
+                StageDirectory,
+                IntendedTargetPath,
+                ArchiveSha256,
+                Version,
+                Outputs,
+                InstalledState,
+                VerifiedSnapshot,
+                lease);
+            _ownershipState = 1;
+            _directoryLease = null;
+            return transfer;
+        }
+    }
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-        DeletePrivateStage(StageDirectory);
+        SourceExactTransactionFileSystem.DirectoryLease? lease;
+        lock (_ownershipGate)
+        {
+            if (_ownershipState != 0) return;
+            _ownershipState = 2;
+            lease = _directoryLease;
+            _directoryLease = null;
+        }
+        if (lease is null) return;
+        try
+        {
+            SourceExactTransactionFileSystem.DeleteOwnedExactDirectory(
+                lease,
+                VerifiedSnapshot,
+                "phase3-stage");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException)
+        {
+            // Dispose is fail-closed: if the held physical lease no longer owns
+            // the verified path, preserve both namespaces for diagnosis. Never
+            // turn a path replacement into authority to delete the replacement.
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    private void RequireInitialSnapshot()
+    {
+        var markerBytes = Encoding.ASCII.GetBytes(Version);
+        var marker = VerifiedSnapshot.Files.SingleOrDefault(row =>
+            row.Name == SourceExactZipStager.VersionMarkerFilename);
+        if (marker is null || marker.Length != markerBytes.Length ||
+            marker.Sha256 != Convert.ToHexString(SHA256.HashData(markerBytes)).ToLowerInvariant())
+            throw new InvalidDataException(
+                "verified stage snapshot does not contain the exact version marker");
+        var rows = VerifiedSnapshot.Files
+            .Where(row => row.Name != SourceExactZipStager.VersionMarkerFilename)
+            .Select(row => new SourceExactStagedOutput(row.Name, row.Length, row.Sha256))
+            .ToArray();
+        if (!rows.SequenceEqual(Outputs))
+            throw new InvalidDataException(
+                "verified stage snapshot differs from its exact output proof");
     }
 
     internal static void DeletePrivateStageBestEffort(string stageDirectory)
@@ -941,6 +1047,92 @@ internal sealed class SourceExactZipStage : IDisposable
             File.Delete(file);
         }
         Directory.Delete(stageDirectory, recursive: false);
+    }
+
+    private sealed record SourceExactStageArtifactBinding(
+        string Repository,
+        string OriginReleaseTag,
+        long ContainerReleaseId,
+        string ContainerReleaseTag,
+        DateTimeOffset ContainerPublishedAt,
+        long AssetId,
+        string AssetFilename,
+        long AssetLength,
+        string AssetSha256,
+        string AssetDownloadUrl,
+        string SemanticAlgorithm,
+        string SemanticSha256,
+        string ComputedSemanticSha256,
+        int EquivalentRecordCount,
+        int SurvivingCoordinateCount)
+    {
+        internal static SourceExactStageArtifactBinding From(
+            SourceExactRecoveryArtifact artifact) => new(
+                artifact.Repository,
+                artifact.OriginReleaseTag,
+                artifact.ContainerReleaseId,
+                artifact.ContainerReleaseTag,
+                artifact.ContainerPublishedAt,
+                artifact.AssetId,
+                artifact.AssetFilename,
+                artifact.AssetLength,
+                artifact.AssetSha256,
+                artifact.AssetDownloadUrl,
+                artifact.Proof.SemanticEquivalenceAlgorithm,
+                artifact.Proof.SemanticEquivalenceSha256,
+                RecoveryRecordContract.ComputeSemanticEquivalenceDigest(
+                    artifact.Proof.Record),
+                artifact.EquivalentRecordCount,
+                artifact.SurvivingCoordinateCount);
+    }
+}
+
+internal sealed class SourceExactStageTransfer : IDisposable
+{
+    private SourceExactTransactionFileSystem.DirectoryLease? _lease;
+
+    internal SourceExactStageTransfer(
+        string stageDirectory,
+        string intendedTargetPath,
+        string archiveSha256,
+        string version,
+        IReadOnlyList<SourceExactStagedOutput> outputs,
+        SourceExactInstalledStateDocument installedState,
+        ExactDirectorySnapshot verifiedSnapshot,
+        SourceExactTransactionFileSystem.DirectoryLease lease)
+    {
+        StageDirectory = stageDirectory;
+        IntendedTargetPath = intendedTargetPath;
+        ArchiveSha256 = archiveSha256;
+        Version = version;
+        Outputs = Array.AsReadOnly(outputs.Select(row => row with { }).ToArray());
+        InstalledState = installedState with
+        {
+            Outputs = Array.AsReadOnly(
+                installedState.Outputs.Select(row => row with { }).ToArray())
+        };
+        VerifiedSnapshot = verifiedSnapshot with
+        {
+            Files = Array.AsReadOnly(
+                verifiedSnapshot.Files.Select(row => row with { }).ToArray())
+        };
+        _lease = lease ?? throw new ArgumentNullException(nameof(lease));
+    }
+
+    internal string StageDirectory { get; }
+    internal string IntendedTargetPath { get; }
+    internal string ArchiveSha256 { get; }
+    internal string Version { get; }
+    internal IReadOnlyList<SourceExactStagedOutput> Outputs { get; }
+    internal SourceExactInstalledStateDocument InstalledState { get; }
+    internal ExactDirectorySnapshot VerifiedSnapshot { get; }
+    internal SourceExactTransactionFileSystem.DirectoryLease Lease => _lease ??
+        throw new ObjectDisposedException(nameof(SourceExactStageTransfer));
+
+    public void Dispose()
+    {
+        _lease?.Dispose();
+        _lease = null;
     }
 }
 

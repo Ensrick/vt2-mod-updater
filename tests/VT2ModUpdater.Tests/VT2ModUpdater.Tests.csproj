@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VT2ModUpdater\VT2ModUpdater.csproj" />
+    <ProjectReference Include="..\VT2ModUpdater.SourceExactCrashHarness\VT2ModUpdater.SourceExactCrashHarness.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

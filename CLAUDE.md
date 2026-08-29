@@ -34,7 +34,63 @@ release assets — lives in the `vermintide-2-tweaker` repo at `tools/publish-re
     numeric archive into a private same-volume sibling, verifies the exact flat output set,
     and never installs or replaces the intended target. Do not wire it to `Deployer`; the
     later journaled directory-transaction phase owns replacement.
+  - `SourceExactDirectoryTransaction` — disabled recovery-only NTFS primitive which consumes
+    that verified sibling stage, adds a strict `source_exact` installed-state sidecar, and
+    replaces one sibling target through handle-bound renames plus append-only crash witnesses.
+    Recovery compares physical identities and exact file sets before committing, rolling back,
+    or deleting anything. It has no UI, updater, `Deployer`, or latest-release call site.
 - `ViewModels/MainViewModel.cs` — orchestration. Async fetch → populate rows → enable buttons.
+
+## Disabled source-exact Phase 4 contract
+
+`SourceExactDirectoryTransaction` is an isolated recovery primitive, not a deployed
+updater path. It must remain absent from production call sites until a later issue
+explicitly authorizes integration. Its current guarantee is deliberately narrow:
+
+- Windows + local fixed NTFS volume only (not UNC, mapped SMB, removable, or RAM-disk
+  storage), with ordinary process termination as the crash boundary. The
+  implementation does **not** claim survival of sudden power loss, storage-controller
+  failure, or write-cache loss.
+- Phase 3 retains a physical directory lease and an exact file-identity/content snapshot.
+  Transfer to Phase 4 is one-shot, validates the complete recovery artifact coordinate,
+  downloaded archive SHA-256, marker, and outputs, and makes caller disposal a no-op.
+- A persistent zero-byte same-parent lock file is held with `FileShare.None`; unlike a
+  `Local\\` named mutex, this serializes processes in different Windows sessions that
+  address the same target.
+- Four bounded, atomically published witnesses describe Prepared, PriorMoved,
+  StagePromoted, and Committed. Recovery derives the outcome from exact physical state,
+  not merely the newest witness, and interrupted exact cleanup is restartable from any
+  proven subset.
+- Before the first complete/partial Prepared witness exists, no target or backup rename is
+  authorized. Process death in that pre-journal window can leave an inert private stage;
+  recovery intentionally preserves it rather than guessing path ownership. From the first
+  witness onward, stage/backup cleanup is process-death restartable.
+- Promotion and cleanup pin NTFS volume/file identities and exact bytes. Reparse points,
+  hard-link aliases, case-sensitive directories, alternate data streams, Win32 device
+  names (including superscript COM/LPT suffixes), extra leaves, and replacements fail
+  closed. No recursive/path-only deletion is authorized.
+- Proofs and comparisons retain ordinary canonical absolute paths, while every path-based
+  Win32 boundary uses the corresponding `\\?\` or `\\?\UNC\` extended-length spelling.
+  Hosted/temp roots may therefore exceed legacy `MAX_PATH` without changing journal or
+  final-path identity semantics.
+- After promotion or recovery accepts a target, its proved files remain open without
+  external write/delete sharing and the target directory cannot be renamed or deleted
+  while rollback/journal authority is retired. Because NTFS directory share modes do not
+  prohibit creation of a brand-new child, exact membership is recounted immediately
+  before authority cleanup; an observed new leaf fails closed while recovery evidence is
+  still present. This is an accidental-race fence, not synchronization with an
+  uncooperative same-user writer after the final recensus.
+- Journal discovery reads at most four official witnesses and one partial witness, each
+  at most 16 MiB. Installed state is separately bounded and must recompute its declared
+  output fingerprint and exactly match the promoted output map.
+
+Threat model: journal SHA-256 is an accidental-corruption checksum, **not** a MAC or
+signature. Replay is idempotent and malformed/foreign physical state is preserved, but a
+malicious process running as the same Windows user can read identities, write a new valid
+journal, or deny service. The reserved `.vt2-source-exact-*` sibling namespace is therefore
+trusted against hostile same-user writers. This phase prevents accidental races and stale
+path deletion; it does not establish a security boundary against code with the updater
+user's filesystem authority.
 
 ## Why synthetic IDs — the v0.1.0 → v0.2.0 lesson
 

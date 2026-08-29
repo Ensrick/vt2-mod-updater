@@ -87,6 +87,58 @@ public sealed class SourceExactZipStagerTests : IDisposable
     }
 
     [Fact]
+    public async Task ProducerStageTransfersItsExactLeaseAndAuthorityIntoPhase4Install()
+    {
+        var target = Path.Combine(_root, "phase4-install");
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "old.mod_bundle"), "prior");
+        var bytes = ArchiveFixture("producer-tracked.zip");
+        var artifact = ArtifactFor(bytes);
+        var source = new ByteSource(bytes, bytes.LongLength);
+        var stager = new SourceExactZipStager(source);
+        var stage = await stager.StageAsync(artifact, target);
+        var stageDirectory = stage.StageDirectory;
+
+        var result = new SourceExactDirectoryTransaction().Install(stage, artifact);
+        stage.Dispose();
+
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(target, result.TargetPath);
+        Assert.Equal(artifact.AssetSha256, result.InstalledState.AssetSha256);
+        Assert.Equal(artifact.AssetLength, result.InstalledState.AssetLength);
+        Assert.Equal(artifact.AssetId, result.InstalledState.AssetId);
+        Assert.Equal(artifact.ContainerReleaseId, result.InstalledState.ContainerReleaseId);
+        Assert.Equal(artifact.Proof.Record.Output.FingerprintSha256,
+            result.InstalledState.OutputFingerprint);
+        Assert.Equal("1.2.3-dev", File.ReadAllText(Path.Combine(
+            target, SourceExactZipStager.VersionMarkerFilename), Encoding.ASCII));
+        Assert.False(File.Exists(Path.Combine(target, "old.mod_bundle")));
+        Assert.False(Directory.Exists(stageDirectory));
+
+        var sidecar = SourceExactInstalledState.Parse(File.ReadAllBytes(
+            Path.Combine(target, SourceExactInstalledState.Filename)));
+        Assert.Equal(result.InstalledState.AssetSha256, sidecar.AssetSha256);
+        Assert.Equal(result.InstalledState.OutputFingerprint, sidecar.OutputFingerprint);
+        Assert.Equal(
+            result.InstalledState.Outputs.Select(row =>
+                (row.Filename, row.Length, row.Sha256)),
+            sidecar.Outputs.Select(row =>
+                (row.Filename, row.Length, row.Sha256)));
+        foreach (var output in sidecar.Outputs)
+        {
+            var path = Path.Combine(target, output.Filename);
+            Assert.True(File.Exists(path));
+            Assert.Equal(output.Length, new FileInfo(path).Length);
+            Assert.Equal(output.Sha256, Sha256(File.ReadAllBytes(path)));
+        }
+
+        // The caller's stale Phase 3 owner is inert after the one-shot transfer.
+        stage.Dispose();
+        Assert.True(File.Exists(Path.Combine(target, "modx.mod")));
+        AssertNoPrivateStageRemains();
+    }
+
+    [Fact]
     public async Task SuccessfulStageDoesNotCreateAnAbsentIntendedTarget()
     {
         var absentTarget = Path.Combine(_root, "not-installed-yet");
