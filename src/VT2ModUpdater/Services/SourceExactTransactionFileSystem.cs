@@ -71,7 +71,7 @@ internal static class SourceExactTransactionFileSystem
         while (true)
         {
             var handle = CreateFileW(
-                normalized,
+                NativePath(normalized),
                 GenericRead | GenericWrite | FileReadAttributes | Synchronize,
                 FileShare.None,
                 IntPtr.Zero,
@@ -116,16 +116,17 @@ internal static class SourceExactTransactionFileSystem
     internal static void RequireNtfs(string path)
     {
         var volume = new StringBuilder(1024);
-        if (!GetVolumePathNameW(Normalize(path), volume, volume.Capacity))
+        if (!GetVolumePathNameW(NativePath(path), volume, volume.Capacity))
             throw Io("cannot resolve source-exact transaction volume");
-        var driveType = GetDriveTypeW(volume.ToString());
+        var nativeVolume = NativePath(volume.ToString());
+        var driveType = GetDriveTypeW(nativeVolume);
         if (!IsLocalFixedDriveType(driveType))
             throw new InvalidDataException(
                 $"source-exact directory transactions require a local fixed volume; " +
                 $"drive type {driveType} is unsupported");
         var fileSystem = new StringBuilder(64);
         if (!GetVolumeInformationW(
-                volume.ToString(), null, 0, out _, out _, out _, fileSystem, fileSystem.Capacity))
+                nativeVolume, null, 0, out _, out _, out _, fileSystem, fileSystem.Capacity))
             throw Io("cannot identify source-exact transaction filesystem");
         if (!string.Equals(fileSystem.ToString(), "NTFS", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException(
@@ -236,7 +237,7 @@ internal static class SourceExactTransactionFileSystem
         try
         {
             var tempHandle = CreateFileW(
-                temp,
+                NativePath(temp),
                 GenericRead | GenericWrite | DeleteAccess | FileReadAttributes | Synchronize,
                 FileShare.Read | FileShare.Delete,
                 IntPtr.Zero,
@@ -449,11 +450,82 @@ internal static class SourceExactTransactionFileSystem
 
     internal static string Normalize(string path)
     {
-        var full = Path.GetFullPath(path);
-        var root = Path.GetPathRoot(full) ?? "";
-        while (full.Length > root.Length && Path.EndsInDirectorySeparator(full))
-            full = full[..^1];
-        return full;
+        var normalized = TrimTrailingDirectorySeparators(
+            OrdinaryPath(Path.GetFullPath(path)));
+        var roundTrip = TrimTrailingDirectorySeparators(
+            OrdinaryPath(Path.GetFullPath(normalized)));
+        if (!string.Equals(normalized, roundTrip, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                "source-exact path has no stable ordinary Win32 spelling");
+        RequireStableOrdinaryComponents(normalized);
+        return normalized;
+    }
+
+    private static string TrimTrailingDirectorySeparators(string value)
+    {
+        var root = Path.GetPathRoot(value) ?? "";
+        while (value.Length > root.Length && Path.EndsInDirectorySeparator(value))
+            value = value[..^1];
+        return value;
+    }
+
+    private static string OrdinaryPath(string value)
+    {
+        if (value.StartsWith("\\\\?\\UNC\\", StringComparison.OrdinalIgnoreCase))
+            return "\\\\" + value[8..];
+        if (value.StartsWith("\\\\.\\", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException(
+                "source-exact paths reject the Win32 device namespace");
+        if (!value.StartsWith("\\\\?\\", StringComparison.OrdinalIgnoreCase))
+            return value;
+        var ordinary = value[4..];
+        if (ordinary.Length >= 3 && char.IsAsciiLetter(ordinary[0]) &&
+            ordinary[1] == ':' &&
+            ordinary[2] is '\\' or '/')
+            return ordinary;
+        throw new InvalidDataException(
+            "source-exact paths reject non-DOS extended namespaces");
+    }
+
+    private static void RequireStableOrdinaryComponents(string value)
+    {
+        var root = Path.GetPathRoot(value) ?? "";
+        if (!Path.IsPathFullyQualified(value) || root.Length == 0 || value.Contains('/'))
+            throw new InvalidDataException(
+                "source-exact path is not a canonical absolute Win32 path");
+
+        if (root.StartsWith("\\\\", StringComparison.Ordinal))
+        {
+            var authority = root.Trim('\\').Split('\\');
+            if (authority.Length != 2 || !SafeLeaf(authority[0]) ||
+                !SafeLeaf(authority[1]))
+                throw new InvalidDataException(
+                    "source-exact UNC path has an unsafe server or share name");
+        }
+        else if (root.Length != 3 || !char.IsAsciiLetter(root[0]) ||
+                 root[1] != ':' || root[2] != '\\')
+        {
+            throw new InvalidDataException(
+                "source-exact path is not rooted in a DOS drive or UNC share");
+        }
+
+        foreach (var component in value[root.Length..].Split(
+                     '\\', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!SafeLeaf(component))
+                throw new InvalidDataException(
+                    "source-exact path contains an unsafe Win32 component");
+        }
+    }
+
+    internal static string NativePath(string path)
+    {
+        var normalized = Normalize(path);
+        if (normalized.StartsWith("\\\\?\\", StringComparison.Ordinal))
+            return normalized;
+        return normalized.StartsWith("\\\\", StringComparison.Ordinal)
+            ? "\\\\?\\UNC\\" + normalized[2..]
+            : "\\\\?\\" + normalized;
     }
 
     internal static bool SamePath(string left, string right) =>
@@ -522,7 +594,7 @@ internal static class SourceExactTransactionFileSystem
                 ? FileShare.Read | FileShare.Delete
                 : FileShare.Read | FileShare.Write | FileShare.Delete;
             var handle = CreateFileW(
-                normalized,
+                NativePath(normalized),
                 FileListDirectory | FileReadAttributes | DeleteAccess | Synchronize |
                     (allowChildRename ? FileAddSubdirectory : 0) |
                     (allowChildCreate ? FileAddFile : 0),
@@ -881,7 +953,7 @@ internal static class SourceExactTransactionFileSystem
     {
         var normalized = Normalize(path);
         var handle = CreateFileW(
-            normalized,
+            NativePath(normalized),
             access,
             share,
             IntPtr.Zero,
@@ -906,7 +978,8 @@ internal static class SourceExactTransactionFileSystem
 
     private static void RequireNoAlternateStreams(string path)
     {
-        var handle = FindFirstStreamW(path, FindStreamInfoStandard, out var data, 0);
+        var handle = FindFirstStreamW(
+            NativePath(path), FindStreamInfoStandard, out var data, 0);
         if (handle == new IntPtr(-1))
         {
             var error = Marshal.GetLastWin32Error();
@@ -980,11 +1053,7 @@ internal static class SourceExactTransactionFileSystem
         if (length == 0 || length >= buffer.Capacity)
             throw Io("cannot resolve source-exact final path");
         var value = buffer.ToString();
-        return value.StartsWith("\\\\?\\UNC\\", StringComparison.OrdinalIgnoreCase)
-            ? "\\\\" + value[8..]
-            : value.StartsWith("\\\\?\\", StringComparison.OrdinalIgnoreCase)
-                ? value[4..]
-                : value;
+        return OrdinaryPath(value);
     }
 
     private static void RenameRelative(

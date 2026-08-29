@@ -165,6 +165,128 @@ public sealed class SourceExactDirectoryTransactionAdversarialTests : IDisposabl
     }
 
     [Fact]
+    public void HostedShapeExtendedPathsSupportInstallAndRecovery()
+    {
+        const int hostedShapeParentLength = 150;
+        var paddingLength = hostedShapeParentLength - _root.Length - 1;
+        Assert.InRange(paddingLength, 1, 200);
+        var longParent = Path.Combine(_root, new string('p', paddingLength));
+        Directory.CreateDirectory(longParent);
+        var target = Path.Combine(longParent, "103712896117");
+        var stageProbe = Path.Combine(
+            longParent, ".vt2-source-exact-stage-" + new string('a', 32));
+        var lockProbe = Path.Combine(
+            longParent, ".vt2-source-exact-lock-" + new string('b', 64) + ".lck");
+        var witnessProbe = Path.Combine(
+            longParent,
+            ".vt2-source-exact-journal-" + new string('c', 64) + "-" +
+            new string('d', 32) + "-0.txn.partial-" + new string('e', 16));
+        Assert.True(stageProbe.Length < 260);
+        Assert.True(lockProbe.Length < 260);
+        Assert.True(witnessProbe.Length > 260);
+        SourceExactTransactionTestFixture.WritePriorTarget(target);
+        using (var stage = SourceExactTransactionTestFixture.CreateStage(longParent, target))
+        {
+            var result = new SourceExactDirectoryTransaction().Install(
+                stage, SourceExactTransactionTestFixture.Artifact());
+            Assert.Equal(Path.GetFullPath(target), result.TargetPath);
+            Assert.True(File.Exists(Path.Combine(target, "modx.mod")));
+        }
+
+        using (var stage = SourceExactTransactionTestFixture.CreateStage(longParent, target))
+        {
+            var interrupted = new SourceExactDirectoryTransaction(checkpoint: point =>
+            {
+                if (point == "committed")
+                    throw new SourceExactSimulatedCrashException(point);
+            });
+            Assert.Throws<SourceExactSimulatedCrashException>(() => interrupted.Install(
+                stage, SourceExactTransactionTestFixture.Artifact()));
+        }
+
+        Assert.Equal(
+            SourceExactRecoveryResult.CommittedRecovered,
+            new SourceExactDirectoryTransaction().Recover(target));
+        using (var lease = SourceExactTransactionFileSystem.OpenDirectory(target))
+        {
+            lease.RequireCurrentPath();
+            Assert.Equal(SourceExactTransactionFileSystem.Normalize(target), lease.CurrentPath);
+        }
+        Assert.True(File.Exists(Path.Combine(target, "modx.mod")));
+        Assert.Empty(Directory.EnumerateFiles(
+            longParent, ".vt2-source-exact-journal-*"));
+        Assert.Empty(Directory.EnumerateDirectories(
+            longParent, ".vt2-source-exact-backup-*"));
+        Assert.Empty(Directory.EnumerateDirectories(
+            longParent, ".vt2-source-exact-stage-*"));
+    }
+
+    [Fact]
+    public void NativePathCanonicalizesDriveAndUncProofPaths()
+    {
+        Assert.Equal(
+            "\\\\?\\C:\\source\\mods",
+            SourceExactTransactionFileSystem.NativePath("C:\\source\\mods"));
+        Assert.Equal(
+            "C:\\source\\mods",
+            SourceExactTransactionFileSystem.Normalize("\\\\?\\C:\\source\\mods"));
+        Assert.Equal(
+            "C:\\source\\mods",
+            SourceExactTransactionFileSystem.Normalize(
+                SourceExactTransactionFileSystem.Normalize("\\\\?\\C:\\source\\mods")));
+        Assert.Equal(
+            "\\\\?\\UNC\\server\\share\\mods",
+            SourceExactTransactionFileSystem.NativePath("\\\\server\\share\\mods"));
+        Assert.Equal(
+            "\\\\server\\share\\mods",
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC\\server\\share\\mods"));
+        Assert.Equal(
+            "\\\\server\\share\\mods",
+            SourceExactTransactionFileSystem.Normalize(
+                SourceExactTransactionFileSystem.Normalize(
+                    "\\\\?\\UNC\\server\\share\\mods")));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize("\\\\?\\C:\\source\\mods."));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize("\\\\?\\C:\\source\\mods "));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize("\\\\?\\C:\\source.\\mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC\\server\\share\\mods."));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC\\server\\share\\mods "));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC\\server\\share.\\mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\C:\\source\\a\\..\\mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC\\server\\share\\source\\a\\..\\mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\C:\\source\\\\mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC\\server\\share\\source\\\\mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\C:/source/mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\UNC/server/share/mods"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize(
+                "\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1"));
+        Assert.Throws<InvalidDataException>(() =>
+            SourceExactTransactionFileSystem.Normalize("\\\\.\\PhysicalDrive0"));
+    }
+
+    [Fact]
     public void ArchiveMismatchRefusesBeforeTargetOrJournalMutation()
     {
         SourceExactTransactionTestFixture.WritePriorTarget(_target);

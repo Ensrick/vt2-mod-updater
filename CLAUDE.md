@@ -69,6 +69,10 @@ explicitly authorizes integration. Its current guarantee is deliberately narrow:
   hard-link aliases, case-sensitive directories, alternate data streams, Win32 device
   names (including superscript COM/LPT suffixes), extra leaves, and replacements fail
   closed. No recursive/path-only deletion is authorized.
+- Proofs and comparisons retain ordinary canonical absolute paths, while every path-based
+  Win32 boundary uses the corresponding `\\?\` or `\\?\UNC\` extended-length spelling.
+  Hosted/temp roots may therefore exceed legacy `MAX_PATH` without changing journal or
+  final-path identity semantics.
 - After promotion or recovery accepts a target, its proved files remain open without
   external write/delete sharing and the target directory cannot be renamed or deleted
   while rollback/journal authority is retired. Because NTFS directory share modes do not
