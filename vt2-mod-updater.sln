@@ -9,6 +9,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VT2ModUpdater.Tests", "tests\VT2ModUpdater.Tests\VT2ModUpdater.Tests.csproj", "{815958DF-4F11-4843-B805-E3B99E6F8777}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VT2ModUpdater.SourceExactCrashHarness", "tests\VT2ModUpdater.SourceExactCrashHarness\VT2ModUpdater.SourceExactCrashHarness.csproj", "{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -43,11 +45,24 @@ Global
 		{815958DF-4F11-4843-B805-E3B99E6F8777}.Release|x64.Build.0 = Release|Any CPU
 		{815958DF-4F11-4843-B805-E3B99E6F8777}.Release|x86.ActiveCfg = Release|Any CPU
 		{815958DF-4F11-4843-B805-E3B99E6F8777}.Release|x86.Build.0 = Release|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Debug|x64.Build.0 = Debug|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Debug|x86.Build.0 = Debug|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Release|x64.ActiveCfg = Release|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Release|x64.Build.0 = Release|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Release|x86.ActiveCfg = Release|Any CPU
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{815958DF-4F11-4843-B805-E3B99E6F8777} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{DAB34EE1-8026-4DD5-A9C9-98D6488EAD30} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="VT2ModUpdater.Tests" />
+    <InternalsVisibleTo Include="VT2ModUpdater.SourceExactCrashHarness" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
